@@ -113,6 +113,13 @@
       "MinValue": "10",
       "MaxValue": "1024",
       "ConstraintDescription" : "must be between 10 and 1024Gb."
+    },
+	
+	
+	"CertificateList" : {
+      "Type": "AWS::CertificateManager::Certificate",
+      "Description": "The ARNs of ACM certificates to be configured with this site.",
+      "ConstraintDescription" : "must be a valid ACM ARNs configured with this AWS account"
     }
   },
 
@@ -271,7 +278,23 @@
         "Protocol" : "HTTP"
       }
     },
-		
+	
+	"ALBHTTPSListener" : {
+      "Type" : "AWS::ElasticLoadBalancingV2::Listener",
+      "Properties" : {
+        "DefaultActions" : [{
+          "Type" : "forward",
+          "TargetGroupArn" : { "Ref" : "ALBHTTPSTargetGroup" }
+        }],
+		"Certificates" : [{"Ref" : "CertificateList"}],
+		"SslPolicy" : "ELBSecurityPolicy-TLS-1-2-2017-01",
+        "LoadBalancerArn" : { "Ref" : "ApplicationLoadBalancer" },
+        "Port" : "443",
+        "Protocol" : "HTTPS"
+      }
+    },
+	
+
     "ALBHTTPTargetGroup" : {
       "Type" : "AWS::ElasticLoadBalancingV2::TargetGroup",
       "Properties" : {
@@ -281,6 +304,25 @@
         "HealthyThresholdCount" : 2,
         "Port" : 80,
         "Protocol" : "HTTP",
+        "UnhealthyThresholdCount" : 5,
+        "VpcId" : {"Ref" : "VpcId"},       
+        "TargetGroupAttributes" :
+          [ { "Key" : "stickiness.enabled", "Value" : "true" },
+            { "Key" : "stickiness.type", "Value" : "lb_cookie" },
+            { "Key" : "stickiness.lb_cookie.duration_seconds", "Value" : "30" }
+        ]
+      }
+    },
+	
+	"ALBHTTPSTargetGroup" : {
+      "Type" : "AWS::ElasticLoadBalancingV2::TargetGroup",
+      "Properties" : {
+        "HealthCheckPath" : "/wordpress/wp-admin/install.php",  
+        "HealthCheckIntervalSeconds" : 10,
+        "HealthCheckTimeoutSeconds" : 5,
+        "HealthyThresholdCount" : 2,
+        "Port" : 443,
+        "Protocol" : "HTTPS",
         "UnhealthyThresholdCount" : 5,
         "VpcId" : {"Ref" : "VpcId"},       
         "TargetGroupAttributes" :
@@ -308,6 +350,7 @@
         "GroupDescription" : "Enable HTTP access via port 80 locked down to the load balancer + SSH access",
         "SecurityGroupIngress" : [
           {"IpProtocol" : "tcp", "FromPort" : "80", "ToPort" : "80", "SourceSecurityGroupId" : {"Fn::Select" : [0, {"Fn::GetAtt" : ["ApplicationLoadBalancer", "SecurityGroups"]}]}},
+		  {"IpProtocol" : "tcp", "FromPort" : "443", "ToPort" : "443", "SourceSecurityGroupId" : {"Fn::Select" : [0, {"Fn::GetAtt" : ["ApplicationLoadBalancer", "SecurityGroups"]}]}},
           {"IpProtocol" : "tcp", "FromPort" : "22", "ToPort" : "22", "CidrIp" : { "Ref" : "SSHLocation"}}
         ],
         "VpcId" : { "Ref" : "VpcId" }
@@ -333,7 +376,7 @@
         "MinSize" : "1",
         "MaxSize" : "2",
         "DesiredCapacity" : { "Ref" : "WebServerCapacity" },
-        "TargetGroupARNs" : [ { "Ref" : "ALBHTTPTargetGroup" } ]
+        "TargetGroupARNs" : [ { "Ref" : "ALBHTTPTargetGroup" }, { "Ref" : "ALBHTTPSTargetGroup" } ]
       },
       "CreationPolicy" : {
         "ResourceSignal" : {
@@ -441,7 +484,7 @@
         "SecurityGroups" : [ {"Ref" : "WebServerSecurityGroup"} ],
         "KeyName"        : { "Ref" : "KeyName" },
 		"BlockDeviceMappings" : [{
-			"DeviceName" : "/dev/xvda",
+			"DeviceName" : "/dev/sda1",
 			"Ebs" : { "VolumeSize" : { "Ref" : "ECInstanceStorage"}
 			}
 		}],
@@ -484,6 +527,10 @@
   "Outputs" : {
     "WebsiteURLHTTP" : {
       "Value" : { "Fn::Join" : ["", ["http://", { "Fn::GetAtt" : [ "ApplicationLoadBalancer", "DNSName" ]}, "/wordpress" ]]},
+      "Description" : "WordPress Website"
+    },
+	"WebsiteURLHTTPS" : {
+      "Value" : { "Fn::Join" : ["", ["https://", { "Fn::GetAtt" : [ "ApplicationLoadBalancer", "DNSName" ]}, "/wordpress" ]]},
       "Description" : "WordPress Website"
     }
   }
